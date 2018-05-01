@@ -6,17 +6,20 @@ import numpy as np
 
 
 class BufferLayer(Layer):
+    # FIXME DOCS
 
-    def __init__(self, buffer_size, input_dim, **kwargs):
+    def __init__(self, buffer_size, **kwargs):
+        super(BufferLayer, self).__init__(**kwargs)
         self.buffer_size = buffer_size
-        self.input_dim = input_dim
+        self.input_dim = None
         self.batch_size = None
         self.buffer = None
-        super(BufferLayer, self).__init__(**kwargs)
-        self.stateful = True
+        self.stateful = True  # TODO support non-stateful
 
     def build(self, input_shape):
         self.batch_size = input_shape[0]
+        self.input_dim = input_shape[-1]  # FIXME the input could multi-dim
+
         if self.batch_size is None:
             raise ValueError('the batch size needs to be set for this layer. '
                              'Specify the batch size '
@@ -30,31 +33,35 @@ class BufferLayer(Layer):
                              '`batch_shape` argument to your Input layer.')
         self.reset_buffer()
         super(BufferLayer, self).build(input_shape)
-        print('built')
 
     def call(self, x):
-        print('call')
         input_size = x.shape[1].value
-        keep_size = self.buffer_size - input_size
+        size_diff = self.buffer_size - input_size
 
-        if keep_size > 0:
-            old = self.buffer[:, :keep_size, :]
-            old =  K.print_tensor(old, message='y_true = ')
-            # old = K.ones((self.batch_size, keep_size, self.input_dim))
-            new_buffer = K.concatenate((x, old), axis=1)
+        if size_diff > 0:
+            #              x -> [[[10], [20]]]
+            #    self.buffer -> [[[0], [1], [2]]]
+            # updated_buffer -> [[[2], [10], [20]]]
+            updated_buffer = K.concatenate(
+                tensors=(self.buffer[:, -size_diff:, :], x),
+                axis=1
+            )
         else:
-            pass
-        self.add_update([(self.buffer, new_buffer)], x)
+            #              x -> [[[10], [20], [30], [40]]]
+            #    self.buffer -> [[[0], [1], [2]]]
+            # updated_buffer -> [[[20], [30], [40]]]
+            updated_buffer = x[:, -size_diff:, :]
 
-        return new_buffer
+        self.add_update([(self.buffer, updated_buffer)], x)
 
-    def reset_buffer(self, buffer=None):
+        return updated_buffer
+
+    def reset_buffer(self):
         buffer_shape = (self.batch_size, self.buffer_size, self.input_dim)
-
         if self.buffer is None:
             # initialize to zeros
             self.buffer = K.zeros(buffer_shape)
-        elif buffer is None:
+        else:
             # reset to zeros
             K.set_value(self.buffer, np.zeros(buffer_shape))
 
